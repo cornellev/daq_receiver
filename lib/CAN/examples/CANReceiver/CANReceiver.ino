@@ -1,16 +1,7 @@
+// Copyright (c) Sandeep Mistry. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-#include <Arduino.h>
 #include <CAN.h>
-
-#include <WiFi.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include <Arduino_JSON.h>   
-#include <stdio.h>
-#include <Wire.h>
-#include <Adafruit_LIS3DH.h>
-#include <Adafruit_Sensor.h>
-
 
 void setup() {
   Serial.begin(9600);
@@ -62,3 +53,4 @@ void loop() {
     Serial.println();
   }
 }
+
