@@ -1,65 +1,244 @@
 
-#include <Arduino.h>
-#include <CAN.h>
+// #include <Arduino.h>
+// #include <CAN.h>
 
+// #include <WiFi.h>
+// #include <AsyncTCP.h>
+// #include <ESPAsyncWebServer.h>
+// #include <Arduino_JSON.h>   
+// #include <stdio.h>
+// #include <Wire.h>
+// #include <Adafruit_LIS3DH.h>
+// #include <Adafruit_Sensor.h>
+
+
+// void setup() {
+//   Serial.begin(9600);
+//   while (!Serial);
+
+//   Serial.println("CAN Receiver");
+
+//   // start the CAN bus at 500 kbps
+//   if (!CAN.begin(500E3)) {
+//     Serial.println("Starting CAN failed!");
+//     while (1);
+//   }
+// }
+// // testing 
+
+// void loop() {
+//   // try to parse packet
+//   int packetSize = CAN.parsePacket();
+
+//   if (packetSize) {
+//     // received a packet
+//     Serial.print("Received ");
+
+//     if (CAN.packetExtended()) {
+//       Serial.print("extended ");
+//     }
+
+//     if (CAN.packetRtr()) {
+//       // Remote transmission request, packet contains no data
+//       Serial.print("RTR ");
+//     }
+
+//     Serial.print("packet with id 0x");
+//     Serial.print(CAN.packetId(), HEX);
+
+//     if (CAN.packetRtr()) {
+//       Serial.print(" and requested length ");
+//       Serial.println(CAN.packetDlc());
+//     } else {
+//       Serial.print(" and length ");
+//       Serial.println(packetSize);
+
+//       // only print packet data for non-RTR packets
+//       while (CAN.available()) {
+//         Serial.print((char)CAN.read());
+//       }
+//       Serial.println();
+//     }
+
+//     Serial.println();
+//   }
+// }
+
+//Buggy Code
+
+#include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <Arduino_JSON.h>   
+// spiffs makes the file system
+#include "SPIFFS.h"
+#include <Arduino_JSON.h>
 #include <stdio.h>
 #include <Wire.h>
-#include <Adafruit_LIS3DH.h>
-#include <Adafruit_Sensor.h>
+#include <CAN.h>
+
+//Steering INSTANTIATIONS
+//const int analogPin = 33;  // ADC-capable pin
+//int analogValue = 0;
+
+// WIFI INSTANTIATIONS
+const char* ssid = "CEV_GOOBER"; //change to new ssid for the router
+const char* password = "G0Ob3rCEV!"; //change to new password for the router
+// creating an AsyncWebServer object on port 80
+AsyncWebServer server(80);
+//WiFiServer server(80);
+//create a websocket object
+AsyncWebSocket ws("/ws");
+//Json variable to hold sensor readings
+JSONVar readings;
+// Timer variables
+unsigned long lastTime = 0;
+unsigned long timerDelay = 300;
+// Set your Static IP address
+IPAddress local_IP(192, 168, 1, 242);
+// Set your Gateway IP address
+IPAddress gateway(192, 168, 1, 1);
+IPAddress subnet(255, 255, 0, 0);
+
+// Initialize WiFi
+void initWiFi() {
+  WiFi.mode(WIFI_STA);
+  //hotspot ssid and password
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi ..");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Connecting...");
+    Serial.print("Status: ");
+    Serial.println(WiFi.status());
+    delay(1000);
+  }
+  Serial.println(WiFi.localIP());
+  Serial.println("Connected to WiFi");
+}
+void notifyClients(String sensorReadings) {
+  ws.textAll(sensorReadings);
+}
+void get_network_info(){
+    if(WiFi.status() == WL_CONNECTED) {
+        Serial.print("[*] Network information for ");
+        Serial.println(ssid);
+        Serial.println("[+] BSSID : " + WiFi.BSSIDstr());
+        Serial.print("[+] Gateway IP : ");
+        Serial.println(WiFi.gatewayIP());
+        Serial.print("[+] Subnet Mask : ");
+        Serial.println(WiFi.subnetMask());
+        Serial.println((String)"[+] RSSI : " + WiFi.RSSI() + " dB");
+        Serial.print("[+] ESP32 IP : ");
+        Serial.println(WiFi.localIP());
+    }
+}
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    //data[len] = 0;
+    //String message = (char*)data;
+    // Check if the message is "getReadings"
+    //if (strcmp((char*)data, "getReadings") == 0) {
+      //if it is, send current sensor readings
+      String sensorReadings = getSensorReadings();
+      Serial.print(sensorReadings);
+      // send to data A&A function
+      notifyClients(sensorReadings);
+    //}
+  }
+}
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
 
 
-void setup() {
-  Serial.begin(9600);
-  while (!Serial);
+String getSensorReadings() {
+  int packetSize = CAN.parsePacket();
+    // To hold the received data as string
+  String receivedData = " ";
+  if (packetSize) {
+    Serial.print("Received packet of size: ");
+    Serial.println(packetSize);
+    while (CAN.available()) {
+      receivedData = (char)CAN.read();  // Append each byte to the string
+      }
+  } else {
+      Serial.println("No data received.");
+  }
 
-  Serial.println("CAN Receiver");
+    Serial.print("Received Data: ");
+    Serial.println(receivedData);  // Print the received string for debugging
 
-  // start the CAN bus at 500 kbps
+    // // Ensure we received exactly 4 characters (corresponding to the analog value)
+    // if (receivedData.length() == 4) {
+    //   // Convert the string to an integer
+    //   int receivedAnalogValue = receivedData.toInt();  
+    //   Serial.print("Received Analog Value: ");
+    //   Serial.println(receivedAnalogValue);  // Print the converted analog value
+
+      // Add the received analog value to the readings (you can adjust this as per your needs)
+
+  // Optionally add other sensor data (e.g., temperature) to the JSON
+  readings["Steering Angle"] = String(receivedData);
+  readings["temperature"] = String("19.4");  // Example, replace with actual sensor data
+
+  // Convert the JSON object to a string and return it
+  String jsonString = JSON.stringify(readings);
+  
+  // Print the JSON string for debugging
+  Serial.println("JSON STRING:");
+  Serial.println(jsonString);
+  
+  return jsonString;
+}
+
+void setup() {  
+  Serial.begin(115200);
+  // Configures static IP address
+  if (!WiFi.config(local_IP, gateway, subnet)) {
+    Serial.println("STA Failed to configure");
+  }
+  initWiFi();
+  initWebSocket();
+  server.begin(); 
+
+  Serial.println("Initializing CAN Bus...");
   if (!CAN.begin(500E3)) {
     Serial.println("Starting CAN failed!");
     while (1);
   }
 }
-// testing 
 
 void loop() {
-  // try to parse packet
-  int packetSize = CAN.parsePacket();
 
-  if (packetSize) {
-    // received a packet
-    Serial.print("Received ");
-
-    if (CAN.packetExtended()) {
-      Serial.print("extended ");
-    }
-
-    if (CAN.packetRtr()) {
-      // Remote transmission request, packet contains no data
-      Serial.print("RTR ");
-    }
-
-    Serial.print("packet with id 0x");
-    Serial.print(CAN.packetId(), HEX);
-
-    if (CAN.packetRtr()) {
-      Serial.print(" and requested length ");
-      Serial.println(CAN.packetDlc());
-    } else {
-      Serial.print(" and length ");
-      Serial.println(packetSize);
-
-      // only print packet data for non-RTR packets
-      while (CAN.available()) {
-        Serial.print((char)CAN.read());
-      }
-      Serial.println();
-    }
-
-    Serial.println();
+  // Now process sensor readings after CAN data is received
+  if ((millis() - lastTime) > timerDelay) {
+    String sensorReadings = getSensorReadings();
+    Serial.print(sensorReadings);
+    notifyClients(sensorReadings);
   }
+
+  // Delay between readings, to limit frequency
+  //delay(timerDelay);
+
+  // Cleanup WebSocket clients
+  ws.cleanupClients();
 }
+
