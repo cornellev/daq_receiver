@@ -1,71 +1,3 @@
-
-// #include <Arduino.h>
-// #include <CAN.h>
-
-// #include <WiFi.h>
-// #include <AsyncTCP.h>
-// #include <ESPAsyncWebServer.h>
-// #include <Arduino_JSON.h>   
-// #include <stdio.h>
-// #include <Wire.h>
-// #include <Adafruit_LIS3DH.h>
-// #include <Adafruit_Sensor.h>
-
-
-// void setup() {
-//   Serial.begin(9600);
-//   while (!Serial);
-
-//   Serial.println("CAN Receiver");
-
-//   // start the CAN bus at 500 kbps
-//   if (!CAN.begin(500E3)) {
-//     Serial.println("Starting CAN failed!");
-//     while (1);
-//   }
-// }
-// // testing 
-
-// void loop() {
-//   // try to parse packet
-//   int packetSize = CAN.parsePacket();
-
-//   if (packetSize) {
-//     // received a packet
-//     Serial.print("Received ");
-
-//     if (CAN.packetExtended()) {
-//       Serial.print("extended ");
-//     }
-
-//     if (CAN.packetRtr()) {
-//       // Remote transmission request, packet contains no data
-//       Serial.print("RTR ");
-//     }
-
-//     Serial.print("packet with id 0x");
-//     Serial.print(CAN.packetId(), HEX);
-
-//     if (CAN.packetRtr()) {
-//       Serial.print(" and requested length ");
-//       Serial.println(CAN.packetDlc());
-//     } else {
-//       Serial.print(" and length ");
-//       Serial.println(packetSize);
-
-//       // only print packet data for non-RTR packets
-//       while (CAN.available()) {
-//         Serial.print((char)CAN.read());
-//       }
-//       Serial.println();
-//     }
-
-//     Serial.println();
-//   }
-// }
-
-//One bit receive Code
-
 #include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -77,9 +9,6 @@
 #include <Wire.h>
 #include <CAN.h>
 
-//Steering INSTANTIATIONS
-//const int analogPin = 33;  // ADC-capable pin
-//int analogValue = 0;
 String getSensorReadings();
 // WIFI INSTANTIATIONS
 const char* ssid = "CEV_GOOBER"; //change to new ssid for the router
@@ -153,17 +82,8 @@ String getSensorReadings() {
     Serial.print("Received Data: ");
     Serial.println(receivedData);  // Print the received string for debugging
 
-    // Ensure we received exactly 4 characters (corresponding to the analog value)
-    // if (receivedData.length() == 4) {
-    //   // Convert the string to an integer
-    //   int receivedAnalogValue = receivedData.toInt();  
-    //   Serial.print("Received Analog Value: ");
-    //   Serial.println(receivedAnalogValue);  // Print the converted analog value
-
-      // Add the received analog value to the readings (you can adjust this as per your needs)
-
-  // Optionally add other sensor data (e.g., temperature) to the JSON
-  readings["temperature"] = String(receivedData);
+  // Add other sensor data (e.g., temperature) to the JSON
+  readings["temperature"] = String(receivedData); // switch temp and steering for data a and a testing 
   readings["Steering Angle"] = String("19.4");  // Example, replace with actual sensor data
 
   // Convert the JSON object to a string and return it
@@ -211,8 +131,6 @@ void initWebSocket() {
   ws.onEvent(onEvent);
   server.addHandler(&ws);
 }
-
-
 
 
 void setup() {  
