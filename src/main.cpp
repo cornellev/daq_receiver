@@ -64,7 +64,7 @@
 //   }
 // }
 
-//Buggy Code
+//One bit receive Code
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -80,7 +80,7 @@
 //Steering INSTANTIATIONS
 //const int analogPin = 33;  // ADC-capable pin
 //int analogValue = 0;
-
+String getSensorReadings();
 // WIFI INSTANTIATIONS
 const char* ssid = "CEV_GOOBER"; //change to new ssid for the router
 const char* password = "G0Ob3rCEV!"; //change to new password for the router
@@ -93,7 +93,7 @@ AsyncWebSocket ws("/ws");
 JSONVar readings;
 // Timer variables
 unsigned long lastTime = 0;
-unsigned long timerDelay = 300;
+unsigned long timerDelay = 200;
 // Set your Static IP address
 IPAddress local_IP(192, 168, 1, 242);
 // Set your Gateway IP address
@@ -132,6 +132,50 @@ void get_network_info(){
         Serial.println(WiFi.localIP());
     }
 }
+
+String getSensorReadings() {
+  long id = CAN.packetId();
+  Serial.println(id);
+  int packetSize = CAN.parsePacket();
+    // To hold the received data as string
+  Serial.println(packetSize);
+  String receivedData = " ";
+  if (packetSize) {
+    Serial.print("Received packet of size: ");
+    Serial.println(packetSize);
+    while (CAN.available()) {
+      receivedData += (char)CAN.read();  // Append each byte to the string
+      }
+  } else {
+      Serial.println("No data received.");
+  }
+
+    Serial.print("Received Data: ");
+    Serial.println(receivedData);  // Print the received string for debugging
+
+    // Ensure we received exactly 4 characters (corresponding to the analog value)
+    // if (receivedData.length() == 4) {
+    //   // Convert the string to an integer
+    //   int receivedAnalogValue = receivedData.toInt();  
+    //   Serial.print("Received Analog Value: ");
+    //   Serial.println(receivedAnalogValue);  // Print the converted analog value
+
+      // Add the received analog value to the readings (you can adjust this as per your needs)
+
+  // Optionally add other sensor data (e.g., temperature) to the JSON
+  readings["temperature"] = String(receivedData);
+  readings["Steering Angle"] = String("19.4");  // Example, replace with actual sensor data
+
+  // Convert the JSON object to a string and return it
+  String jsonString = JSON.stringify(readings);
+  
+  // Print the JSON string for debugging
+  Serial.println("JSON STRING:");
+  Serial.println(jsonString);
+  
+  return jsonString;
+}
+
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
@@ -169,45 +213,7 @@ void initWebSocket() {
 }
 
 
-String getSensorReadings() {
-  int packetSize = CAN.parsePacket();
-    // To hold the received data as string
-  String receivedData = " ";
-  if (packetSize) {
-    Serial.print("Received packet of size: ");
-    Serial.println(packetSize);
-    while (CAN.available()) {
-      receivedData = (char)CAN.read();  // Append each byte to the string
-      }
-  } else {
-      Serial.println("No data received.");
-  }
 
-    Serial.print("Received Data: ");
-    Serial.println(receivedData);  // Print the received string for debugging
-
-    // // Ensure we received exactly 4 characters (corresponding to the analog value)
-    // if (receivedData.length() == 4) {
-    //   // Convert the string to an integer
-    //   int receivedAnalogValue = receivedData.toInt();  
-    //   Serial.print("Received Analog Value: ");
-    //   Serial.println(receivedAnalogValue);  // Print the converted analog value
-
-      // Add the received analog value to the readings (you can adjust this as per your needs)
-
-  // Optionally add other sensor data (e.g., temperature) to the JSON
-  readings["Steering Angle"] = String(receivedData);
-  readings["temperature"] = String("19.4");  // Example, replace with actual sensor data
-
-  // Convert the JSON object to a string and return it
-  String jsonString = JSON.stringify(readings);
-  
-  // Print the JSON string for debugging
-  Serial.println("JSON STRING:");
-  Serial.println(jsonString);
-  
-  return jsonString;
-}
 
 void setup() {  
   Serial.begin(115200);
@@ -236,7 +242,7 @@ void loop() {
   }
 
   // Delay between readings, to limit frequency
-  //delay(timerDelay);
+  delay(timerDelay);
 
   // Cleanup WebSocket clients
   ws.cleanupClients();
