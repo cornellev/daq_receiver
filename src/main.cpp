@@ -62,39 +62,202 @@ void get_network_info(){
     }
 }
 
+
+//ITER 1: without multiple sensors
+// String getSensorReadings() {
+//   long id = CAN.packetId();
+//   Serial.println(id);
+//   int packetSize = CAN.parsePacket();
+//     // To hold the received data as string
+//   Serial.println(packetSize);
+//   String receivedData = " ";
+//   if (packetSize) {
+//     Serial.print("Received packet of size: ");
+//     Serial.println(packetSize);
+//     while (CAN.available()) {
+//       receivedData += (char)CAN.read();  // Append each byte to the string
+//       }
+//   } else {
+//       Serial.println("No data received.");
+//   }
+
+//     Serial.print("Received Data: ");
+//     Serial.println(receivedData);  // Print the received string for debugging
+
+//   // Add other sensor data (e.g., temperature) to the JSON
+//   readings["temperature"] = String(receivedData); // switch temp and steering for data a and a testing 
+//   readings["Steering Angle"] = String("19.4");  // Example, replace with actual sensor data
+//   readings["RPM"] = String();
+//   // Convert the JSON object to a string and return it
+//   String jsonString = JSON.stringify(readings);
+  
+//   // Print the JSON string for debugging
+//   Serial.println("JSON STRING:");
+//   Serial.println(jsonString);
+  
+//   return jsonString;
+// }
+
+//ITER 2: only checks  first case
+// String getSensorReadings() {
+//   String receivedData = " ";
+//   int packetSize = CAN.parsePacket();
+
+//   if (packetSize) {
+//     long id = CAN.packetId(); // Get the CAN packet ID
+//     Serial.print("Received packet with ID: 0x");
+//     Serial.print(id, HEX);
+//     Serial.print(" of size: ");
+//     Serial.println(packetSize);
+
+//     // Handle packets based on their ID
+//     switch (id) {
+//       case 0x12: { // Joystick/Steering data
+//         uint8_t steeringHigh = CAN.read();
+//         uint8_t steeringLow = CAN.read();
+//         int steeringValue = (steeringHigh << 8) | steeringLow;
+//         readings["Steering_Angle"] = String(steeringValue);
+//         Serial.print("Steering Angle: ");
+//         Serial.println(steeringValue);
+//         //break;
+//       }
+//       case 0x15: { // RPM data
+//         uint8_t leftHigh = CAN.read();
+//         uint8_t leftLow = CAN.read();
+//         uint8_t rightHigh = CAN.read();
+//         uint8_t rightLow = CAN.read();
+//         int leftRPM = (leftHigh << 8) | leftLow;
+//         int rightRPM = (rightHigh << 8) | rightLow;
+//         readings["Left_RPM"] = String(leftRPM);
+//         readings["Right_RPM"] = String(rightRPM);
+//         Serial.print("Left RPM: ");
+//         Serial.print(leftRPM);
+//         Serial.print(" | Right RPM: ");
+//         Serial.println(rightRPM);
+//         //break;
+//       }
+//       case 0x18: { // Accelerometer data
+//         uint8_t xHigh = CAN.read();
+//         uint8_t xLow = CAN.read();
+//         uint8_t yHigh = CAN.read();
+//         uint8_t yLow = CAN.read();
+//         uint8_t zHigh = CAN.read();
+//         uint8_t zLow = CAN.read();
+//         int x = (xHigh << 8) | xLow;
+//         int y = (yHigh << 8) | yLow;
+//         int z = (zHigh << 8) | zLow;
+//         readings["Accel_X"] = String(x);
+//         readings["Accel_Y"] = String(y);
+//         readings["Accel_Z"] = String(z);
+//         Serial.print("Accel X: ");
+//         Serial.print(x);
+//         Serial.print(" | Accel Y: ");
+//         Serial.print(y);
+//         Serial.print(" | Accel Z: ");
+//         Serial.println(z);
+//         //break;
+//       }
+//       default: {
+//         // Handle unknown packet IDs
+//         while (CAN.available()) {
+//           receivedData += (char)CAN.read(); // Append each byte to the string
+//         }
+//         Serial.print("Received Data: ");
+//         Serial.println(receivedData);
+//         readings["Unknown_Data"] = receivedData;
+//         break;
+//       }
+//     }
+//   } else {
+//     Serial.println("No data received.");
+//   }
+
+
+//ITER 3: updated code, should work. 
 String getSensorReadings() {
-  long id = CAN.packetId();
-  Serial.println(id);
-  int packetSize = CAN.parsePacket();
-    // To hold the received data as string
-  Serial.println(packetSize);
-  String receivedData = " ";
-  if (packetSize) {
-    Serial.print("Received packet of size: ");
+  // Clear previous readings
+  readings = JSONVar();
+
+  // Process all available CAN packets
+  while (CAN.parsePacket()) {
+    long id = CAN.packetId(); // Get the CAN packet ID
+    Serial.print("Received packet with ID: 0x");
+    Serial.print(id, HEX);
+    Serial.print(" of size: ");
+    int packetSize = CAN.parsePacket();
     Serial.println(packetSize);
-    while (CAN.available()) {
-      receivedData += (char)CAN.read();  // Append each byte to the string
+
+    // Handle packets based on their ID
+    switch (id) {
+      case 0x12: { // Joystick/Steering data
+        uint8_t steeringHigh = CAN.read();
+        uint8_t steeringLow = CAN.read();
+        int steeringValue = (steeringHigh << 8) | steeringLow;
+        readings["Steering_Angle"] = String(steeringValue);
+        Serial.print("Steering Angle: ");
+        Serial.println(steeringValue);
+        break;
       }
-  } else {
-      Serial.println("No data received.");
+      case 0x15: { // RPM data
+        uint8_t leftHigh = CAN.read();
+        uint8_t leftLow = CAN.read();
+        uint8_t rightHigh = CAN.read();
+        uint8_t rightLow = CAN.read();
+        int leftRPM = (leftHigh << 8) | leftLow;
+        int rightRPM = (rightHigh << 8) | rightLow;
+        readings["Left_RPM"] = String(leftRPM);
+        readings["Right_RPM"] = String(rightRPM);
+        Serial.print("Left RPM: ");
+        Serial.print(leftRPM);
+        Serial.print(" | Right RPM: ");
+        Serial.println(rightRPM);
+        break;
+      }
+      case 0x18: { // Accelerometer data
+        uint8_t xHigh = CAN.read();
+        uint8_t xLow = CAN.read();
+        uint8_t yHigh = CAN.read();
+        uint8_t yLow = CAN.read();
+        uint8_t zHigh = CAN.read();
+        uint8_t zLow = CAN.read();
+        int x = (xHigh << 8) | xLow;
+        int y = (yHigh << 8) | yLow;
+        int z = (zHigh << 8) | zLow;
+        readings["Accel_X"] = String(x);
+        readings["Accel_Y"] = String(y);
+        readings["Accel_Z"] = String(z);
+        Serial.print("Accel X: ");
+        Serial.print(x);
+        Serial.print(" | Accel Y: ");
+        Serial.print(y);
+        Serial.print(" | Accel Z: ");
+        Serial.println(z);
+        break;
+      }
+      default: {
+        // Handle unknown packet IDs
+        String receivedData = " ";
+        while (CAN.available()) {
+          receivedData += (char)CAN.read(); // Append each byte to the string
+        }
+        Serial.print("Received Data: ");
+        Serial.println(receivedData);
+        readings["Unknown_Data"] = receivedData;
+        break;
+      }
+    }
   }
-
-    Serial.print("Received Data: ");
-    Serial.println(receivedData);  // Print the received string for debugging
-
-  // Add other sensor data (e.g., temperature) to the JSON
-  readings["temperature"] = String(receivedData); // switch temp and steering for data a and a testing 
-  readings["Steering Angle"] = String("19.4");  // Example, replace with actual sensor data
 
   // Convert the JSON object to a string and return it
   String jsonString = JSON.stringify(readings);
-  
+
   // Print the JSON string for debugging
   Serial.println("JSON STRING:");
   Serial.println(jsonString);
-  
+
   return jsonString;
 }
+
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
