@@ -22,7 +22,7 @@ AsyncWebSocket ws("/ws");
 JSONVar readings;
 // Timer variables
 unsigned long lastTime = 0;
-unsigned long timerDelay = 200;
+unsigned long timerDelay = 1000;
 // Set your Static IP address
 IPAddress local_IP(192, 168, 1, 242);
 // Set your Gateway IP address
@@ -173,29 +173,33 @@ void get_network_info(){
 //   }
 
 
-//ITER 3: updated code, should work. 
+//ITER 3: updated code, doesnt work. 
 String getSensorReadings() {
   // Clear previous readings
   readings = JSONVar();
-
+  
   // Process all available CAN packets
-  while (CAN.parsePacket()) {
+  while (CAN.available()) {
     long id = CAN.packetId(); // Get the CAN packet ID
+    int packetSize = CAN.parsePacket();
     Serial.print("Received packet with ID: 0x");
     Serial.print(id, HEX);
     Serial.print(" of size: ");
-    int packetSize = CAN.parsePacket();
     Serial.println(packetSize);
 
     // Handle packets based on their ID
     switch (id) {
       case 0x12: { // Joystick/Steering data
-        uint8_t steeringHigh = CAN.read();
-        uint8_t steeringLow = CAN.read();
-        int steeringValue = (steeringHigh << 8) | steeringLow;
-        readings["Steering_Angle"] = String(steeringValue);
-        Serial.print("Steering Angle: ");
-        Serial.println(steeringValue);
+        // uint8_t steeringHigh = CAN.read();
+        // uint8_t steeringLow = CAN.read();
+        // int steeringValue = (steeringHigh << 8) | steeringLow;
+        String receivedData = " ";
+        while (CAN.available()) {
+          receivedData += (char)CAN.read(); // Append each byte to the string
+        }
+        readings["Steering_Angle"] = String(receivedData);
+        // Serial.print("Steering Angle: ");
+        // Serial.println(receivedData);
         break;
       }
       case 0x15: { // RPM data
@@ -236,27 +240,67 @@ String getSensorReadings() {
       }
       default: {
         // Handle unknown packet IDs
-        String receivedData = " ";
-        while (CAN.available()) {
-          receivedData += (char)CAN.read(); // Append each byte to the string
-        }
-        Serial.print("Received Data: ");
-        Serial.println(receivedData);
-        readings["Unknown_Data"] = receivedData;
+        // String receivedData = " ";
+        // while (CAN.available()) {
+        //   receivedData += (char)CAN.read(); // Append each byte to the string
+        // }
+        Serial.print("Received Data: Unknown Packet ID ");
+        // Serial.println(receivedData);
+        // readings["Unknown_Data"] = receivedData;
         break;
       }
-    }
+    } //CAN.read();
   }
 
   // Convert the JSON object to a string and return it
   String jsonString = JSON.stringify(readings);
 
   // Print the JSON string for debugging
-  Serial.println("JSON STRING:");
-  Serial.println(jsonString);
+  // Serial.println("JSON STRING:");
+  // Serial.println(jsonString);
 
   return jsonString;
 }
+
+//only for RPM 
+// String getSensorReadings() {
+//   int packetSize = CAN.parsePacket(); // Parse the CAN packet first
+//   if (packetSize == 0) {
+//       Serial.println("No CAN data received.");
+//       return "";
+//   }
+
+//   long id = CAN.packetId(); // Get the CAN packet ID after parsing
+
+//   Serial.printf("Received CAN Frame - ID: 0x%X, Size: %d\n", id, packetSize);
+
+//   if (id == 0x15 && packetSize == 4) { // Ensure correct ID and data length
+//       uint8_t leftHigh = CAN.read();
+//       uint8_t leftLow = CAN.read();
+//       uint8_t rightHigh = CAN.read();
+//       uint8_t rightLow = CAN.read();
+
+//       int leftRPM = (leftHigh << 8) | leftLow;
+//       int rightRPM = (rightHigh << 8) | rightLow;
+
+//       Serial.printf("Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
+
+//       // Store RPM values in JSON
+//       readings["Left_RPM"] = leftRPM;
+//       readings["Right_RPM"] = rightRPM;
+
+//       // Convert JSON to string and send to WebSocket clients
+//       String jsonString = JSON.stringify(readings);
+//       notifyClients(jsonString);
+
+//       return jsonString;
+//   } else {
+//       Serial.printf("Unknown CAN ID: 0x%X | Size: %d\n", id, packetSize);
+//   }
+  
+//   return "";
+// }
+
 
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
