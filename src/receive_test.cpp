@@ -1,60 +1,3 @@
-// // // Copyright (c) Sandeep Mistry. All rights reserved.
-// // // Licensed under the MIT license. See LICENSE file in the project root for full license information.
-
-// #include <CAN.h>
-// #include <Arduino.h>
-
-// void setup() {
-//   Serial.begin(115200);
-//   while (!Serial);
-
-//   Serial.println("CAN Receiver");
-
-//   // start the CAN bus at 500 kbps
-//   if (!CAN.begin(500E3)) {
-//     Serial.println("Starting CAN failed!");
-//     while (1);
-//   }
-// }
-
-// void loop() {
-//   // try to parse packet
-//   int packetSize = CAN.parsePacket();
-
-//   if (packetSize) {
-//     // received a packet
-//     Serial.print("Received ");
-
-//     if (CAN.packetExtended()) {
-//       Serial.print("extended ");
-//     }
-
-//     if (CAN.packetRtr()) {
-//       // Remote transmission request, packet contains no data
-//       Serial.print("RTR ");
-//     }
-
-//     Serial.print("packet with id 0x");
-//     Serial.print(CAN.packetId(), HEX);
-
-//     if (CAN.packetRtr()) {
-//       Serial.print(" and requested length ");
-//       Serial.println(CAN.packetDlc());
-//     } else {
-//       Serial.print(" and length ");
-//       Serial.println(packetSize);
-
-//       // only print packet data for non-RTR packets
-//       while (CAN.available()) {
-//         Serial.print((char)CAN.read());
-//       }
-//       Serial.println();
-//     }
-
-//     Serial.println();
-//   }
-// }
-
 // CODE that works (almost, need to figure out accel.)
 #include <Arduino.h>
 #include <WiFi.h>
@@ -66,8 +9,11 @@
 #include <CAN.h>
 
 // WiFi Credentials
-const char* ssid = "CEV_GOOBER"; 
-const char* password = "G0Ob3rCEV!";
+// const char* ssid = "CEV_GOOBER"; 
+// const char* password = "G0Ob3rCEV!";
+
+const char* ssid = "cev-router";
+const char* password = "cev@2024";
 
 // Async Web Server
 AsyncWebServer server(80);
@@ -75,6 +21,11 @@ AsyncWebSocket ws("/ws");
 
 // JSON for sensor readings
 JSONVar readings;
+
+// I2C Device Address
+#define I2C_DEV_ADDR 0x55
+#define I2C_SDA 23
+#define I2C_SCL 22
 
 // Timer Variables
 unsigned long lastTime = 0;
@@ -102,6 +53,64 @@ void notifyClients(String sensorReadings) {
   ws.textAll(sensorReadings);
 }
 
+void onReceive(int len) {
+  while (Wire.available()) { 
+    Wire.read();  // Read and discard all bytes
+  }
+  Serial.println("I2C Data received and buffer cleared.");
+
+  if (len == 8) {  // Expecting 2x 4-byte RPM values
+      uint8_t data[8];
+      for (int i = 0; i < 8; i++) {
+          data[i] = Wire.read();
+      }
+      int leftRPM = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+      int rightRPM = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+
+      // Convert bytes to RPM (float)
+      // float leftRPM, rightRPM;
+      // memcpy(&leftRPM, &data[0], sizeof(float));
+      // memcpy(&rightRPM, &data[4], sizeof(float));
+
+      readings["Left_RPM"] = leftRPM;
+      readings["Right_RPM"] = rightRPM;
+
+      Serial.printf("I2C Received -> Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
+  } else {
+      Serial.println("I2C: Incorrect data length received.");
+  }
+}
+
+
+// Use this if getting partial RPM reads instead of above. 
+// void onReceive(int len) {
+//   if (len == 8) {  // Expecting 2x 4-byte RPM values
+//       uint8_t data[8];
+//       int index = 0;
+
+//       // Read until buffer is empty or we have read 8 bytes
+//       while (Wire.available() && index < 8) {  
+//           data[index++] = Wire.read();
+//       }
+
+//       // Ensure we got all 8 bytes before processing
+//       if (index == 8) {
+//           int leftRPM = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+//           int rightRPM = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+
+//           readings["Left_RPM"] = leftRPM;
+//           readings["Right_RPM"] = rightRPM;
+
+//           Serial.printf("I2C Received -> Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
+//       } else {
+//           Serial.println("I2C Error: Incomplete data received.");
+//       }
+//   } else {
+//       Serial.printf("I2C: Unexpected data length (%d bytes) received.\n", len);
+//   }
+// }
+
+
 // Process CAN Messages
 void processCANMessages() {
   while (CAN.parsePacket()) { // Check if a new CAN message is available
@@ -122,20 +131,20 @@ void processCANMessages() {
         break;
       }
 
-      case 0x15: {  // RPM Data
-        if (CAN.available() >= 4) {  // Ensure full data is available
-          uint8_t leftHigh = CAN.read();
-          uint8_t leftLow = CAN.read();
-          uint8_t rightHigh = CAN.read();
-          uint8_t rightLow = CAN.read();
-          int leftRPM = (leftHigh << 8) | leftLow;
-          int rightRPM = (rightHigh << 8) | rightLow;
-          readings["Left_RPM"] = leftRPM;
-          readings["Right_RPM"] = rightRPM;
-          Serial.printf("Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
-        }
-        break;
-      }
+      // case 0x15: {  // RPM Data (not using CAN for this anymore)
+      //   if (CAN.available() >= 4) {  // Ensure full data is available
+      //     uint8_t leftHigh = CAN.read();
+      //     uint8_t leftLow = CAN.read();
+      //     uint8_t rightHigh = CAN.read();
+      //     uint8_t rightLow = CAN.read();
+      //     int leftRPM = (leftHigh << 8) | leftLow;
+      //     int rightRPM = (rightHigh << 8) | rightLow;
+      //     readings["Left_RPM"] = leftRPM;
+      //     readings["Right_RPM"] = rightRPM;
+      //     Serial.printf("Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
+      //   }
+      //   break;
+      // }
 
       case 0x18: {  // Accelerometer Data
         if (CAN.available() >= 6) {  // Ensure full data is available
@@ -179,22 +188,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   }
 }
 
-// void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
-//   switch (type) {
-//     case WS_EVT_CONNECT:
-//       Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-//       break;
-//     case WS_EVT_DISCONNECT:
-//       Serial.printf("WebSocket client #%u disconnected\n", client->id());
-//       break;
-//     case WS_EVT_DATA:
-//       handleWebSocketMessage(arg, data, len);
-//       break;
-//     case WS_EVT_PONG:
-//     case WS_EVT_ERROR:
-//       break;
-//   }
-// }
 
 void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   switch (type) {
@@ -237,11 +230,22 @@ void setup() {
     while (1);
   }
   Serial.println("CAN initialized.");
+
+  Serial.println("Initializing I2C...");
+  Wire.end();
+  delay(100);
+  Wire.begin(I2C_DEV_ADDR, I2C_SDA, I2C_SCL, 100000);
+  Wire.onReceive(onReceive);
+    
+  Serial.println("I2C Ready to receive RPM data.");
+
 }
 
 // Main Loop
 void loop() {
   unsigned long currentMillis = millis();
+
+  //processCANMessages();
 
   // Only process CAN data at defined intervals
   if (currentMillis - lastTime >= timerDelay) {

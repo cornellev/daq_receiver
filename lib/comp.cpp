@@ -8,8 +8,15 @@
 #include <CAN.h>
 
 // WiFi Credentials
-const char* ssid = "CEV_GOOBER"; 
-const char* password = "G0Ob3rCEV!";
+// const char* ssid = "CEV_GOOBER"; 
+// const char* password = "G0Ob3rCEV!";
+
+const char* ssid = "cev-router";
+const char* password = "cev@2024";
+
+// #define I2C_DEV_ADDR 0x55
+// #define I2C_SDA 21
+// #define I2C_SCL 22
 
 // Async Web Server
 AsyncWebServer server(80);
