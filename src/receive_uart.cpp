@@ -1,11 +1,9 @@
-// CODE that works with I2C & CAN (almost, need to figure out accel.) combined..
 #include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include "SPIFFS.h"
 #include <Arduino_JSON.h>
-#include <Wire.h>
 #include <CAN.h>
 
 // WiFi Credentials
@@ -22,10 +20,10 @@ AsyncWebSocket ws("/ws");
 // JSON for sensor readings
 JSONVar readings;
 
-// I2C Device Address
-#define I2C_DEV_ADDR 0x55
-#define I2C_SDA 23
-#define I2C_SCL 22
+// UART Configuration
+#define UART_RX_PIN 16  // RX pin (ESP32 receives from Pico)
+#define UART_TX_PIN 17  // TX pin (not used, but defined)
+#define UART_BAUD 115200
 
 // Timer Variables
 unsigned long lastTime = 0;
@@ -53,69 +51,39 @@ void notifyClients(String sensorReadings) {
   ws.textAll(sensorReadings);
 }
 
-void onReceive(int len) {
-  while (Wire.available()) { 
-    Wire.read();  // Read and discard all bytes
-  }
-  Serial.println("I2C Data received and buffer cleared.");
+// Read and parse RPM from UART
+void readUARTData() {
+  static String uartBuffer = "";
+  
+  while (Serial2.available()) {
+      char c = Serial2.read();
 
-  if (len == 8) {  // Expecting 2x 4-byte RPM values
-      uint8_t data[8];
-      for (int i = 0; i < 8; i++) {
-          data[i] = Wire.read();
+      if (c == '>') {  // End of message
+          uartBuffer.trim();
+          Serial.println("UART Received: " + uartBuffer);
+
+          int leftRPM, rightRPM;
+          if (sscanf(uartBuffer.c_str(), "<L_RPM:%d,R_RPM:%d>", &leftRPM, &rightRPM) == 2) {
+              readings["Left_RPM"] = leftRPM;
+              readings["Right_RPM"] = rightRPM;
+              Serial.printf("Parsed -> Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
+          } else {
+              Serial.println("UART: Invalid data format!");
+          }
+
+          uartBuffer = "";  // Clear buffer after processing
+      } else {
+          uartBuffer += c;  // Build up message
       }
-      int leftRPM = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
-      int rightRPM = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
-
-      // Convert bytes to RPM (float)
-      // float leftRPM, rightRPM;
-      // memcpy(&leftRPM, &data[0], sizeof(float));
-      // memcpy(&rightRPM, &data[4], sizeof(float));
-
-      readings["Left_RPM"] = leftRPM;
-      readings["Right_RPM"] = rightRPM;
-
-      Serial.printf("I2C Received -> Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
-  } else {
-      Serial.println("I2C: Incorrect data length received.");
   }
 }
 
 
-// Use this if getting partial RPM reads instead of above. 
-// void onReceive(int len) {
-//   if (len == 8) {  // Expecting 2x 4-byte RPM values
-//       uint8_t data[8];
-//       int index = 0;
-
-//       // Read until buffer is empty or we have read 8 bytes
-//       while (Wire.available() && index < 8) {  
-//           data[index++] = Wire.read();
-//       }
-
-//       // Ensure we got all 8 bytes before processing
-//       if (index == 8) {
-//           int leftRPM = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
-//           int rightRPM = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
-
-//           readings["Left_RPM"] = leftRPM;
-//           readings["Right_RPM"] = rightRPM;
-
-//           Serial.printf("I2C Received -> Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
-//       } else {
-//           Serial.println("I2C Error: Incomplete data received.");
-//       }
-//   } else {
-//       Serial.printf("I2C: Unexpected data length (%d bytes) received.\n", len);
-//   }
-// }
-
-
 // Process CAN Messages
 void processCANMessages() {
-  while (CAN.parsePacket()) { // Check if a new CAN message is available
+  while (CAN.parsePacket()) {
     long id = CAN.packetId();
-    Serial.print("Received packet with ID: 0x");
+    Serial.print("Received CAN ID: 0x");
     Serial.print(id, HEX);
     Serial.print(", Size: ");
     Serial.println(CAN.packetDlc());
@@ -131,23 +99,8 @@ void processCANMessages() {
         break;
       }
 
-      // case 0x15: {  // RPM Data (not using CAN for this anymore)
-      //   if (CAN.available() >= 4) {  // Ensure full data is available
-      //     uint8_t leftHigh = CAN.read();
-      //     uint8_t leftLow = CAN.read();
-      //     uint8_t rightHigh = CAN.read();
-      //     uint8_t rightLow = CAN.read();
-      //     int leftRPM = (leftHigh << 8) | leftLow;
-      //     int rightRPM = (rightHigh << 8) | rightLow;
-      //     readings["Left_RPM"] = leftRPM;
-      //     readings["Right_RPM"] = rightRPM;
-      //     Serial.printf("Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
-      //   }
-      //   break;
-      // }
-
       case 0x18: {  // Accelerometer Data
-        if (CAN.available() >= 6) {  // Ensure full data is available
+        if (CAN.available() >= 6) {
           uint8_t xHigh = CAN.read();
           uint8_t xLow = CAN.read();
           uint8_t yHigh = CAN.read();
@@ -174,7 +127,8 @@ void processCANMessages() {
 
 // Get Sensor Readings and return as JSON String
 String getSensorReadings() {
-  processCANMessages();  // Fetch new CAN data
+  readUARTData(); // Fetch new RPM data
+  processCANMessages(); // Fetch new CAN data
   return JSON.stringify(readings);
 }
 
@@ -183,11 +137,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
   if (info->final && info->opcode == WS_TEXT) {
     String sensorReadings = getSensorReadings();
-    //Serial.println(sensorReadings);
     notifyClients(sensorReadings);
   }
 }
-
 
 void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   switch (type) {
@@ -205,7 +157,6 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
   }
 }
 
-
 // Initialize WebSocket
 void initWebSocket() {
   ws.onEvent(onWebSocketEvent);
@@ -215,7 +166,8 @@ void initWebSocket() {
 // Setup Function
 void setup() {
   Serial.begin(115200);
-
+  Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);  // UART2 for RPM
+  
   if (!WiFi.config(local_IP, gateway, subnet)) {
     Serial.println("STA Failed to configure");
   }
@@ -230,24 +182,16 @@ void setup() {
     while (1);
   }
   Serial.println("CAN initialized.");
-
-  Serial.println("Initializing I2C...");
-  Wire.end();
-  delay(100);
-  Wire.begin(I2C_DEV_ADDR, I2C_SDA, I2C_SCL, 100000);
-  Wire.onReceive(onReceive);
-    
-  Serial.println("I2C Ready to receive RPM data.");
-
+  
+  Serial.println("Ready to receive RPM data via UART.");
 }
 
 // Main Loop
 void loop() {
   unsigned long currentMillis = millis();
 
-  //processCANMessages();
+  readUARTData(); // Read new RPM data from UART
 
-  // Only process CAN data at defined intervals
   if (currentMillis - lastTime >= timerDelay) {
     String sensorReadings = getSensorReadings();
     Serial.println(sensorReadings);
@@ -255,6 +199,5 @@ void loop() {
     lastTime = currentMillis;
   }
 
-  // Cleanup WebSocket Clients
   ws.cleanupClients();
 }
