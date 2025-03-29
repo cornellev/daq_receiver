@@ -58,12 +58,13 @@ void readUARTData() {
   while (Serial2.available()) {
       char c = Serial2.read();
 
-      if (c == '>') {  // End of message
+      if (c == '\n') {  // End of message
           uartBuffer.trim();
           Serial.println("UART Received: " + uartBuffer);
 
           int leftRPM, rightRPM;
-          if (sscanf(uartBuffer.c_str(), "<L_RPM:%d,R_RPM:%d>", &leftRPM, &rightRPM) == 2) {
+          // Serial.println(uartBuffer);
+          if (sscanf(uartBuffer.c_str(), "%04d%04d", &leftRPM, &rightRPM) == 2) {
               readings["Left_RPM"] = leftRPM;
               readings["Right_RPM"] = rightRPM;
               Serial.printf("Parsed -> Left RPM: %d | Right RPM: %d\n", leftRPM, rightRPM);
