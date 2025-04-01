@@ -7,11 +7,11 @@
 #include <CAN.h>
 
 // WiFi Credentials
-// const char* ssid = "CEV_GOOBER";
-// const char* password = "G0Ob3rCEV!";
+const char *ssid = "CEV_GOOBER";
+const char *password = "G0Ob3rCEV!";
 
-const char *ssid = "cev-router";
-const char *password = "cev@2024";
+// const char *ssid = "cev-router";
+// const char *password = "cev@2024";
 
 // Async Web Server
 AsyncWebServer server(80);
@@ -27,12 +27,14 @@ JSONVar readings;
 
 // Timer Variables
 unsigned long lastTime = 0;
-const unsigned long timerDelay = 1000;
+const unsigned long timerDelay = 200;
 
 // Static IP Configuration
 IPAddress local_IP(192, 168, 1, 242);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 0, 0);
+
+int temp = 0; // TODO: REMOVE
 
 // Initialize WiFi
 void initWiFi()
@@ -68,13 +70,14 @@ void readUARTData()
       uartBuffer.trim();
       Serial.println("UART Received: " + uartBuffer);
 
-      float velocity, throttle;
-      // Serial.println(uartBuffer);
-      if (sscanf(uartBuffer.c_str(), "%4f%4f", &velocity, &throttle) == 2)
+      float velocity, throttle, steering;
+
+      if (sscanf(uartBuffer.c_str(), "%4f%4f%4f", &velocity, &throttle, &steering) == 2)
       {
-        readings["Velocity"] = velocity;
-        readings["Throttle"] = throttle;
-        Serial.printf("Parsed -> Velocity: %f | Throttle: %f\n", velocity, throttle);
+        readings["left_rpm"] = velocity;
+        readings["potent"] = throttle;
+        readings["steer_angle"] = steering;
+        Serial.printf("Parsed -> Velocity: %f | Throttle: %f | Steering: %f\n", velocity, throttle, steering);
       }
       else
       {
