@@ -27,14 +27,83 @@ JSONVar readings;
 
 // Timer Variables
 unsigned long lastTime = 0;
-const unsigned long timerDelay = 200;
+const unsigned long timerDelay = 1000;
 
 // Static IP Configuration
 IPAddress local_IP(192, 168, 1, 242);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 0, 0);
 
-int temp = 0; // TODO: REMOVE
+// Make data buffer
+float timestamp_buffer[100];
+float left_rpm_buffer[100];
+float right_rpm_buffer[100];
+float throttle_buffer[100];
+float steering_buffer[100];
+
+int buffer_start = 0;
+int buffer_end = 0;
+
+void buffer_add(float timestamp, float left_rpm, float right_rpm, float throttle, float steering)
+{
+  timestamp_buffer[buffer_end] = timestamp;
+  left_rpm_buffer[buffer_end] = left_rpm;
+  right_rpm_buffer[buffer_end] = right_rpm;
+  throttle_buffer[buffer_end] = throttle;
+  steering_buffer[buffer_end] = steering;
+
+  buffer_end = (buffer_end + 1) % 100;
+  if (buffer_end == buffer_start)
+  {
+    buffer_start = (buffer_start + 1) % 100;
+  }
+}
+
+void buffer_get(int index, float *timestamp, float *left_rpm, float *right_rpm, float *throttle, float *steering)
+{
+  *timestamp = timestamp_buffer[(buffer_start + index) % 100];
+  *left_rpm = left_rpm_buffer[(buffer_start + index) % 100];
+  *right_rpm = right_rpm_buffer[(buffer_start + index) % 100];
+  *throttle = throttle_buffer[(buffer_start + index) % 100];
+  *steering = steering_buffer[(buffer_start + index) % 100];
+}
+
+// Parse buffer into a json string starting at buffer_start and ending at buffer_end
+String buffer_to_json()
+{
+  // Json with timestamp array, left_rpm array, right_rpm array, throttle array, steering array
+  JSONVar json;
+  JSONVar timestamp_array;
+  JSONVar left_rpm_array;
+  JSONVar right_rpm_array;
+  JSONVar throttle_array;
+  JSONVar steering_array;
+
+  for (int i = 0; i < 100; i++)
+  {
+    float timestamp, left_rpm, right_rpm, throttle, steering;
+    buffer_get(i, &timestamp, &left_rpm, &right_rpm, &throttle, &steering);
+
+    timestamp_array[i] = timestamp;
+    left_rpm_array[i] = left_rpm;
+    right_rpm_array[i] = right_rpm;
+    throttle_array[i] = throttle;
+    steering_array[i] = steering;
+  }
+
+  json["timestamp"] = timestamp_array;
+  json["left_rpm"] = left_rpm_array;
+  json["right_rpm"] = right_rpm_array;
+  json["throttle"] = throttle_array;
+  json["steering"] = steering_array;
+
+  String json_str = JSON.stringify(json);
+
+  Serial.println("JSON: ");
+  Serial.println(json_str);
+
+  return json_str;
+}
 
 // Initialize WiFi
 void initWiFi()
@@ -59,29 +128,32 @@ void notifyClients(String sensorReadings)
 // Read and parse RPM from UART
 void readUARTData()
 {
+  // Clear buffer
+  buffer_start = 0;
+  buffer_end = 0;
+
   static String uartBuffer = "";
 
-  while (Serial2.available())
+  while (Serial2.available() && buffer_end < 100)
   {
     char c = Serial2.read();
 
     if (c == '\n')
     { // End of message
       uartBuffer.trim();
-      Serial.println("UART Received: " + uartBuffer);
+      // Serial.println("UART Received: " + uartBuffer);
 
-      float velocity, throttle, steering;
+      float timestamp, left_rpm, throttle, steering;
 
-      if (sscanf(uartBuffer.c_str(), "%4f%4f%4f", &velocity, &throttle, &steering) == 2)
+      if (sscanf(uartBuffer.c_str(), "%f %f %f %f", &timestamp, &left_rpm, &throttle, &steering) == 4)
       {
-        readings["left_rpm"] = velocity;
-        readings["potent"] = throttle;
-        readings["steer_angle"] = steering;
-        Serial.printf("Parsed -> Velocity: %f | Throttle: %f | Steering: %f\n", velocity, throttle, steering);
+        // Update buffer with Timestamp in s, RPM, Throttle, Steering Angle
+        buffer_add(timestamp, left_rpm, 0, throttle, steering);
+        // Serial.printf("Parsed -> Timestamp: %f | Left RPM: %f | Throttle: %f | Steering: %f\n", timestamp, left_rpm, throttle, steering);
       }
       else
       {
-        Serial.println("UART: Invalid data format!");
+        // Serial.println("UART: Invalid data format!");
       }
 
       uartBuffer = ""; // Clear buffer after processing
@@ -91,13 +163,18 @@ void readUARTData()
       uartBuffer += c; // Build up message
     }
   }
+  // Flush Serial2 buffer
+  while (Serial2.available())
+  {
+    Serial2.read();
+  }
 }
 
 // Get Sensor Readings and return as JSON String
 String getSensorReadings()
 {
   readUARTData(); // Fetch new RPM data
-  return JSON.stringify(readings);
+  return buffer_to_json();
 }
 
 // WebSocket Event Handler
@@ -162,7 +239,6 @@ void loop()
   if (currentMillis - lastTime >= timerDelay)
   {
     String sensorReadings = getSensorReadings();
-    Serial.println(sensorReadings);
     notifyClients(sensorReadings);
     lastTime = currentMillis;
   }
