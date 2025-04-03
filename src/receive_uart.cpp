@@ -13,6 +13,9 @@ const char *password = "G0Ob3rCEV!";
 // const char *ssid = "cev-router";
 // const char *password = "cev@2024";
 
+// const char *ssid = "Guest-Network";
+// const char *password = "Haymountguest1";
+
 // Async Web Server
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -35,7 +38,7 @@ IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 0, 0);
 
 // Make data buffer
-float timestamp_buffer[100];
+uint32_t timestamp_buffer[100];
 float left_rpm_buffer[100];
 float right_rpm_buffer[100];
 float throttle_buffer[100];
@@ -44,7 +47,9 @@ float steering_buffer[100];
 int buffer_start = 0;
 int buffer_end = 0;
 
-void buffer_add(float timestamp, float left_rpm, float right_rpm, float throttle, float steering)
+uint32_t last_timestamp_parsed = 0;
+
+void buffer_add(uint32_t timestamp, float left_rpm, float right_rpm, float throttle, float steering)
 {
   timestamp_buffer[buffer_end] = timestamp;
   left_rpm_buffer[buffer_end] = left_rpm;
@@ -59,48 +64,76 @@ void buffer_add(float timestamp, float left_rpm, float right_rpm, float throttle
   }
 }
 
-void buffer_get(int index, float *timestamp, float *left_rpm, float *right_rpm, float *throttle, float *steering)
-{
-  *timestamp = timestamp_buffer[(buffer_start + index) % 100];
-  *left_rpm = left_rpm_buffer[(buffer_start + index) % 100];
-  *right_rpm = right_rpm_buffer[(buffer_start + index) % 100];
-  *throttle = throttle_buffer[(buffer_start + index) % 100];
-  *steering = steering_buffer[(buffer_start + index) % 100];
-}
-
 // Parse buffer into a json string starting at buffer_start and ending at buffer_end
 String buffer_to_json()
 {
-  // Json with timestamp array, left_rpm array, right_rpm array, throttle array, steering array
-  JSONVar json;
-  JSONVar timestamp_array;
-  JSONVar left_rpm_array;
-  JSONVar right_rpm_array;
-  JSONVar throttle_array;
-  JSONVar steering_array;
+  String json_str = "{";
 
-  for (int i = 0; i < 100; i++)
+  printf("Buffer Start: %d | Buffer End: %d\n", buffer_start, buffer_end);
+
+  json_str += "\"timestamp\":[";
+
+  for (int i = 0; i < buffer_end; i++)
   {
-    float timestamp, left_rpm, right_rpm, throttle, steering;
-    buffer_get(i, &timestamp, &left_rpm, &right_rpm, &throttle, &steering);
-
-    timestamp_array[i] = timestamp;
-    left_rpm_array[i] = left_rpm;
-    right_rpm_array[i] = right_rpm;
-    throttle_array[i] = throttle;
-    steering_array[i] = steering;
+    uint32_t timestamp = timestamp_buffer[i];
+    json_str += String(timestamp);
+    if (i < buffer_end - 1)
+    {
+      json_str += ",";
+    }
   }
 
-  json["timestamp"] = timestamp_array;
-  json["left_rpm"] = left_rpm_array;
-  json["right_rpm"] = right_rpm_array;
-  json["throttle"] = throttle_array;
-  json["steering"] = steering_array;
+  json_str += "],\"left_rpm\":[";
 
-  String json_str = JSON.stringify(json);
+  for (int i = 0; i < buffer_end; i++)
+  {
+    float left_rpm = left_rpm_buffer[i];
+    json_str += String(left_rpm, 3);
+    if (i < buffer_end - 1)
+    {
+      json_str += ",";
+    }
+  }
 
-  Serial.println("JSON: ");
-  Serial.println(json_str);
+  json_str += "],\"right_rpm\":[";
+
+  for (int i = 0; i < buffer_end; i++)
+  {
+    float right_rpm = right_rpm_buffer[i];
+    json_str += String(right_rpm, 3);
+    if (i < buffer_end - 1)
+    {
+      json_str += ",";
+    }
+  }
+
+  json_str += "],\"throttle\":[";
+
+  for (int i = 0; i < buffer_end; i++)
+  {
+    float throttle = throttle_buffer[i];
+    json_str += String(throttle, 3);
+    if (i < buffer_end - 1)
+    {
+      json_str += ",";
+    }
+  }
+
+  json_str += "],\"steering\":[";
+
+  for (int i = 0; i < buffer_end; i++)
+  {
+    float steering = steering_buffer[i];
+    json_str += String(steering, 3);
+    if (i < buffer_end - 1)
+    {
+      json_str += ",";
+    }
+  }
+
+  json_str += "]}";
+
+  printf(json_str.c_str());
 
   return json_str;
 }
@@ -134,35 +167,44 @@ void readUARTData()
 
   static String uartBuffer = "";
 
-  while (Serial2.available() && buffer_end < 100)
+  while (buffer_end < 99)
   {
-    char c = Serial2.read();
+    if (Serial2.available())
+    {
+      char c = Serial2.read();
 
-    if (c == '\n')
-    { // End of message
-      uartBuffer.trim();
-      // Serial.println("UART Received: " + uartBuffer);
+      if (c == '\n')
+      { // End of message
+        uartBuffer.trim();
+        // Serial.println("UART Received: " + uartBuffer);
 
-      float timestamp, left_rpm, throttle, steering;
+        uint32_t timestamp;
+        float left_rpm, throttle, steering;
 
-      if (sscanf(uartBuffer.c_str(), "%f %f %f %f", &timestamp, &left_rpm, &throttle, &steering) == 4)
-      {
-        // Update buffer with Timestamp in s, RPM, Throttle, Steering Angle
-        buffer_add(timestamp, left_rpm, 0, throttle, steering);
-        // Serial.printf("Parsed -> Timestamp: %f | Left RPM: %f | Throttle: %f | Steering: %f\n", timestamp, left_rpm, throttle, steering);
+        if (sscanf(uartBuffer.c_str(), "%u %f %f %f", &timestamp, &left_rpm, &throttle, &steering) == 4)
+        {
+          if (timestamp > last_timestamp_parsed)
+          {
+            // Update buffer with Timestamp in s, RPM, Throttle, Steering Angle
+            buffer_add(timestamp, left_rpm, 0, throttle, steering);
+            // Serial.printf("Parsed -> Timestamp: %d | Left RPM: %f | Throttle: %f | Steering: %f\n", timestamp, left_rpm, throttle, steering);
+          }
+          last_timestamp_parsed = timestamp;
+        }
+        else
+        {
+          // Serial.println("UART: Invalid data format!");
+        }
+
+        uartBuffer = ""; // Clear buffer after processing
       }
       else
       {
-        // Serial.println("UART: Invalid data format!");
+        uartBuffer += c; // Build up message
       }
-
-      uartBuffer = ""; // Clear buffer after processing
-    }
-    else
-    {
-      uartBuffer += c; // Build up message
     }
   }
+
   // Flush Serial2 buffer
   while (Serial2.available())
   {
